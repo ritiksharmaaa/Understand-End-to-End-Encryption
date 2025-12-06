@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>End-to-End Encryption: The Interactive Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Secure Slate. Grounded in Slate-50/100 for a clean, technical background. Primary actions use Blue-600 (trust). Security states use Emerald-500 (secure) and Rose-500 (compromised/alert). Text is high-contrast Slate-800. -->
+    
+    <!-- Application Structure Plan:
+        1. **Hero Section**: Hooks the user with the core promise of E2EE (Privacy).
+        2. **The Key Forge (Setup)**: Interactive card-based section where users "Mint" their keys. This demystifies the abstract "Identity Key" vs "Pre-Key" concepts.
+        3. **The Handshake Lab (X3DH)**: A step-by-step visual animation of the X3DH protocol. Users click to advance the "bundle" from server to recipient.
+        4. **Ratchet Simulator (The Core)**: A split-view messaging app. Left side is the chat, Right side is a dynamic visualization of the "Double Ratchet" chain. As messages send, users see keys derive and disappear.
+        5. **Safety Number Verifier**: A "Spot the Difference" style interaction to explain MITM attacks and verification.
+        Rationale: This linear progression mirrors the actual technical lifecycle of a Signal/WhatsApp session.
+    -->
+
+    <!-- Visualization & Content Choices:
+        1. **Key Cards**: HTML/CSS Cards with Emoji icons. Goal: Organize. Justification: distinct visual shapes help differentiate key types (Identity = ID Card, Prekey = Ticket).
+        2. **Ratchet Chain**: Dynamic HTML/CSS Flexbox stream + Chart.js. Goal: Change/Process. The HTML visualizes the "Chain" growing. Chart.js tracks "Session Entropy" (mock metric) to satisfy the chart requirement and show cumulative security.
+        3. **MITM Comparator**: Interactive Text Comparison. Goal: Inform/Verify. Simple visual comparison is the most effective way to teach Safety Numbers.
+        CONFIRMATION: NO SVG graphics used. NO Mermaid JS used.
+    -->
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        .key-card { transition: all 0.3s ease; }
+        .key-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .ratchet-node {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .connection-line {
+            height: 4px;
+            background: #e2e8f0;
+            transition: width 1s ease;
+        }
+        .connection-line.active { background: #3b82f6; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-200">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-2">
+                    <span class="text-2xl">🔐</span>
+                    <span class="font-bold text-lg tracking-tight">E2EE Explained</span>
+                </div>
+                <div class="hidden md:flex space-x-8 text-sm font-medium">
+                    <a href="#intro" class="hover:text-blue-600 transition-colors">Start</a>
+                    <a href="#keys" class="hover:text-blue-600 transition-colors">Keys</a>
+                    <a href="#handshake" class="hover:text-blue-600 transition-colors">Handshake</a>
+                    <a href="#ratchet" class="hover:text-blue-600 transition-colors">The Ratchet</a>
+                    <a href="#verify" class="hover:text-blue-600 transition-colors">Verify</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header id="intro" class="pt-20 pb-16 text-center px-4">
+        <h1 class="text-4xl md:text-6xl font-extrabold text-slate-900 mb-6 tracking-tight">
+            From Math to <span class="text-blue-600">Message</span>
+        </h1>
+        <p class="text-lg text-slate-600 max-w-2xl mx-auto mb-8">
+            End-to-End Encryption (E2EE) ensures only you and your recipient can read your messages. 
+            No hackers. No governments. No service providers. 
+            Here is exactly how it works, step-by-step.
+        </p>
+        <div class="flex justify-center gap-4">
+            <div class="flex flex-col items-center p-4 bg-white rounded-lg shadow-sm border border-slate-200 w-32">
+                <span class="text-3xl mb-2">📱</span>
+                <span class="text-xs font-bold uppercase text-slate-500">Sender</span>
+            </div>
+            <div class="flex items-center text-slate-300">
+                ---------------- 🔒 ----------------
+            </div>
+            <div class="flex flex-col items-center p-4 bg-white rounded-lg shadow-sm border border-slate-200 w-32">
+                <span class="text-3xl mb-2">📱</span>
+                <span class="text-xs font-bold uppercase text-slate-500">Receiver</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 space-y-32 pb-32">
+
+        <!-- Phase 1: The Keys -->
+        <section id="keys" class="scroll-mt-24">
+            <div class="mb-8">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Step 1</span>
+                    <h2 class="text-3xl font-bold text-slate-900">The Cast of Characters (Keys)</h2>
+                </div>
+                <p class="text-slate-600 max-w-3xl leading-relaxed">
+                    Before you send a single message, your app generates a set of cryptographic keys. 
+                    These are simply long strings of numbers. E2EE uses <strong>Asymmetric Cryptography</strong>: 
+                    a <em>Public Key</em> (Open Padlock) that anyone can use to lock a message, and a <em>Private Key</em> (The Key) that only you have to unlock it.
+                </p>
+            </div>
+
+            <div class="bg-white rounded-2xl p-8 border border-slate-200 shadow-xl">
+                <div class="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
+                    <h3 class="font-bold text-lg">Your Key Vault</h3>
+                    <button id="generate-keys-btn" class="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2 rounded-lg font-medium transition-all active:scale-95">
+                        Generate My Keys
+                    </button>
+                </div>
+
+                <div id="keys-container" class="grid md:grid-cols-3 gap-6 opacity-50 pointer-events-none transition-opacity duration-500">
+                    <!-- Identity Key -->
+                    <div class="key-card bg-slate-50 p-6 rounded-xl border border-slate-200 relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 bg-blue-500 text-white text-[10px] px-2 py-1 rounded-bl font-bold">PERMANENT</div>
+                        <div class="text-4xl mb-4">🆔</div>
+                        <h4 class="font-bold text-slate-900 mb-1">Identity Key Pair</h4>
+                        <p class="text-xs text-slate-500 mb-4">Proves "You are You". Never changes unless you reinstall.</p>
+                        <div class="font-mono text-xs bg-white p-2 rounded border border-slate-200 text-slate-400 truncate">
+                            Pending generation...
+                        </div>
+                    </div>
+
+                    <!-- Signed Pre-Key -->
+                    <div class="key-card bg-slate-50 p-6 rounded-xl border border-slate-200 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] px-2 py-1 rounded-bl font-bold">ROTATING</div>
+                        <div class="text-4xl mb-4">✍️</div>
+                        <h4 class="font-bold text-slate-900 mb-1">Signed Pre-Key</h4>
+                        <p class="text-xs text-slate-500 mb-4">Medium-term key. Signed by your Identity Key.</p>
+                        <div class="font-mono text-xs bg-white p-2 rounded border border-slate-200 text-slate-400 truncate">
+                            Pending generation...
+                        </div>
+                    </div>
+
+                    <!-- One-Time Pre-Keys -->
+                    <div class="key-card bg-slate-50 p-6 rounded-xl border border-slate-200 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 bg-purple-500 text-white text-[10px] px-2 py-1 rounded-bl font-bold">EPHEMERAL</div>
+                        <div class="text-4xl mb-4">⚡</div>
+                        <h4 class="font-bold text-slate-900 mb-1">One-Time Pre-Keys</h4>
+                        <p class="text-xs text-slate-500 mb-4">Used once per new chat, then deleted forever.</p>
+                        <div class="font-mono text-xs bg-white p-2 rounded border border-slate-200 text-slate-400 truncate">
+                            Pending generation...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 2: The Handshake -->
+        <section id="handshake" class="scroll-mt-24">
+            <div class="mb-8">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Step 2</span>
+                    <h2 class="text-3xl font-bold text-slate-900">The Handshake (X3DH)</h2>
+                </div>
+                <p class="text-slate-600 max-w-3xl leading-relaxed">
+                    When Bob wants to message Alice, he fetches her "Public Bundle" from the server. 
+                    Using a protocol called <strong>X3DH</strong>, Bob's phone combines his keys with Alice's keys to calculate a shared <strong>Root Key</strong>.
+                    Crucially, the server never sees this Root Key.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 rounded-2xl p-8 shadow-2xl overflow-hidden relative min-h-[400px]">
+                <!-- Background Grid -->
+                <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#6366f1 1px, transparent 1px); background-size: 20px 20px;"></div>
+                
+                <div class="grid grid-cols-3 h-full relative z-10">
+                    <!-- Column: Bob -->
+                    <div class="flex flex-col items-center justify-between py-4 border-r border-slate-700/50">
+                        <div class="text-center">
+                            <div class="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-3xl shadow-lg shadow-blue-500/20 mb-2">👨</div>
+                            <h3 class="text-white font-bold">Bob</h3>
+                        </div>
+                        <div id="bob-handshake-status" class="text-xs font-mono text-blue-300 text-center px-4">
+                            Waiting to start...
+                        </div>
+                    </div>
+
+                    <!-- Column: Server -->
+                    <div class="flex flex-col items-center justify-start py-4 border-r border-slate-700/50 relative">
+                        <div class="text-center mb-12">
+                            <div class="w-20 h-12 bg-slate-700 rounded flex items-center justify-center text-2xl shadow-inner mb-2 border border-slate-600">🏢</div>
+                            <h3 class="text-slate-400 text-xs uppercase tracking-widest">Server</h3>
+                        </div>
+                        
+                        <!-- The Bundle (Animated Element) -->
+                        <div id="key-bundle" class="absolute top-24 w-12 h-12 bg-white rounded flex items-center justify-center text-xl shadow-lg transition-all duration-1000 z-20 opacity-0">
+                            📦
+                        </div>
+                    </div>
+
+                    <!-- Column: Alice -->
+                    <div class="flex flex-col items-center justify-between py-4">
+                        <div class="text-center">
+                            <div class="w-16 h-16 bg-purple-500 rounded-full flex items-center justify-center text-3xl shadow-lg shadow-purple-500/20 mb-2">👩</div>
+                            <h3 class="text-white font-bold">Alice</h3>
+                        </div>
+                        <div class="text-xs font-mono text-purple-300 text-center px-4">
+                            Keys published<br>to server
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-30">
+                    <button id="start-handshake-btn" class="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 rounded-full font-bold shadow-lg transition-transform active:scale-95">
+                        Start X3DH Protocol
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 3: The Ratchet -->
+        <section id="ratchet" class="scroll-mt-24">
+            <div class="mb-8">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Step 3</span>
+                    <h2 class="text-3xl font-bold text-slate-900">The Double Ratchet</h2>
+                </div>
+                <p class="text-slate-600 max-w-3xl leading-relaxed mb-6">
+                    This is the engine of modern encryption. We don't use the Root Key for everything. 
+                    Instead, we "ratchet" forward. Each message has its own unique key derived from the previous one. 
+                    Once a message is decrypted, its key is deleted forever <strong>(Forward Secrecy)</strong>.
+                </p>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-8 h-[600px]">
+                <!-- Chat Simulator -->
+                <div class="bg-white rounded-2xl shadow-lg border border-slate-200 flex flex-col overflow-hidden">
+                    <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 font-bold">A</div>
+                            <div>
+                                <h4 class="font-bold text-slate-900 text-sm">Alice</h4>
+                                <div class="text-xs text-emerald-600 flex items-center gap-1">
+                                    <span class="w-2 h-2 bg-emerald-500 rounded-full"></span> Encrypted
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="chat-messages" class="flex-1 p-4 space-y-4 overflow-y-auto bg-slate-50/30">
+                        <div class="text-center text-xs text-slate-400 my-4">-- Session Established --</div>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-200 bg-white">
+                        <form id="chat-form" class="flex gap-2">
+                            <input type="text" id="chat-input" placeholder="Type a message..." class="flex-1 px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+                            <button type="button" id="send-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl font-bold transition-colors">
+                                Send
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Ratchet Visualizer -->
+                <div class="bg-slate-900 rounded-2xl shadow-lg p-6 text-white flex flex-col">
+                    <h3 class="font-bold text-lg mb-2 flex items-center gap-2">
+                        <span>⚙️</span> Under the Hood: The Chain
+                    </h3>
+                    <p class="text-slate-400 text-xs mb-6">Watch how new keys are born and old ones die.</p>
+                    
+                    <!-- Dynamic Log -->
+                    <div id="crypto-log" class="flex-1 font-mono text-xs space-y-2 overflow-y-auto mb-6 pr-2 text-slate-300">
+                        <div class="text-emerald-500">> System Ready. Waiting for input...</div>
+                    </div>
+
+                    <!-- Chart Container -->
+                    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-xs font-bold uppercase text-slate-400">Total Keys Derived</h4>
+                            <span class="text-xs bg-blue-900 text-blue-200 px-2 py-1 rounded" id="key-count-badge">0</span>
+                        </div>
+                        <div class="chart-container" style="height: 150px;">
+                            <canvas id="ratchetChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 4: Verification -->
+        <section id="verify" class="scroll-mt-24">
+            <div class="mb-8">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Step 4</span>
+                    <h2 class="text-3xl font-bold text-slate-900">Verification (MITM)</h2>
+                </div>
+                <p class="text-slate-600 max-w-3xl leading-relaxed">
+                    How do you know the server didn't give you a fake key? 
+                    Apps generate a <strong>Safety Number</strong> from both users' public keys. 
+                    If these numbers match on both phones, the connection is secure.
+                </p>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <div class="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-200">
+                    <!-- User View -->
+                    <div class="p-8 text-center bg-blue-50/30">
+                        <h3 class="font-bold text-slate-900 mb-2">Your Device</h3>
+                        <p class="text-xs text-slate-500 mb-6">Safety Number for Alice</p>
+                        <div id="safety-num-1" class="font-mono text-2xl tracking-widest text-slate-800 font-bold mb-2">38491 02938</div>
+                        <div class="text-xs text-slate-400">Generated from: Your IK + Alice's IK</div>
+                    </div>
+                    
+                    <!-- Recipient View -->
+                    <div class="p-8 text-center bg-purple-50/30">
+                        <h3 class="font-bold text-slate-900 mb-2">Alice's Device</h3>
+                        <p class="text-xs text-slate-500 mb-6">Safety Number for You</p>
+                        <div id="safety-num-2" class="font-mono text-2xl tracking-widest text-slate-800 font-bold mb-2">????? ?????</div>
+                        <div class="text-xs text-slate-400">Generated from: Alice's IK + Your IK</div>
+                    </div>
+                </div>
+
+                <div class="p-6 bg-slate-50 border-t border-slate-200 text-center">
+                    <p class="text-sm text-slate-600 mb-4">Simulate a scenario:</p>
+                    <div class="flex justify-center gap-4">
+                        <button onclick="verifySafety(true)" class="px-6 py-2 bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200 hover:bg-emerald-200 transition-colors">
+                            ✅ Normal Connection
+                        </button>
+                        <button onclick="verifySafety(false)" class="px-6 py-2 bg-rose-100 text-rose-700 font-bold rounded-lg border border-rose-200 hover:bg-rose-200 transition-colors">
+                            ⚠️ Man-in-the-Middle Attack
+                        </button>
+                    </div>
+                    <div id="verify-result" class="mt-6 font-bold h-6 transition-all duration-300"></div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-slate-900 py-12 text-center text-slate-400 text-sm">
+        <p>Generated Interactive Guide based on Signal Protocol specifications.</p>
+    </footer>
+
+    <script>
+        // --- Global State ---
+        const state = {
+            keysGenerated: false,
+            handshakeComplete: false,
+            messageIndex: 0
+        };
+
+        // --- 1. Keys Logic ---
+        const generateBtn = document.getElementById('generate-keys-btn');
+        const keysContainer = document.getElementById('keys-container');
+        
+        generateBtn.addEventListener('click', () => {
+            generateBtn.innerText = "Generating...";
+            generateBtn.disabled = true;
+            generateBtn.classList.add('opacity-75', 'cursor-not-allowed');
+
+            setTimeout(() => {
+                state.keysGenerated = true;
+                keysContainer.classList.remove('opacity-50', 'pointer-events-none');
+                
+                // Populate fake keys
+                const codes = document.querySelectorAll('.font-mono.text-xs.bg-white');
+                codes[0].innerText = "IK_pub_8f7a9c2b..."; 
+                codes[0].classList.add('text-blue-600', 'font-bold');
+                
+                codes[1].innerText = "SPK_pub_2b9c1d4e..."; 
+                codes[1].classList.add('text-emerald-600', 'font-bold');
+                
+                codes[2].innerText = "OTPK_001...OTPK_100"; 
+                codes[2].classList.add('text-purple-600', 'font-bold');
+
+                generateBtn.innerText = "Keys Generated ✅";
+                generateBtn.classList.replace('bg-slate-900', 'bg-emerald-600');
+            }, 800);
+        });
+
+        // --- 2. Handshake Logic ---
+        const handshakeBtn = document.getElementById('start-handshake-btn');
+        const bundle = document.getElementById('key-bundle');
+        const bobStatus = document.getElementById('bob-handshake-status');
+
+        handshakeBtn.addEventListener('click', () => {
+            if (!state.keysGenerated) {
+                alert("Please generate keys in Step 1 first!");
+                document.getElementById('keys').scrollIntoView({behavior: 'smooth'});
+                return;
+            }
+
+            // Reset for replay
+            bundle.style.transition = 'none';
+            bundle.style.top = '96px'; // Server pos
+            bundle.style.left = '50%';
+            bundle.style.transform = 'translateX(-50%)';
+            bundle.style.opacity = '0';
+            
+            // Start Animation
+            setTimeout(() => {
+                bundle.style.transition = 'all 1.5s ease-in-out';
+                bundle.style.opacity = '1';
+                // Move from Server (middle) to Bob (left)
+                // We need to calculate roughly where Bob is relative to server column
+                // Or just cheat with fixed percentages for this simple demo
+                bundle.style.left = '16%'; // Approximate center of Bob's col
+                bundle.style.top = '50%'; 
+            }, 100);
+
+            bobStatus.innerText = "Fetching Bundle...";
+            
+            setTimeout(() => {
+                bobStatus.innerText = "Calculating Root Key...";
+                bobStatus.classList.add('text-yellow-400');
+            }, 1600);
+
+            setTimeout(() => {
+                state.handshakeComplete = true;
+                bobStatus.innerHTML = "Secure Connection Established<br>Root Key: <span class='text-white'>RK_99x2...</span>";
+                bobStatus.classList.replace('text-yellow-400', 'text-emerald-400');
+                handshakeBtn.innerText = "Handshake Complete";
+                handshakeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }, 3000);
+        });
+
+        // --- 3. Ratchet Logic ---
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatMsgs = document.getElementById('chat-messages');
+        const cryptoLog = document.getElementById('crypto-log');
+        const sendBtn = document.getElementById('send-btn');
+        const countBadge = document.getElementById('key-count-badge');
+
+        // Chart Setup
+        const ctx = document.getElementById('ratchetChart').getContext('2d');
+        const ratchetChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Chain Index',
+                    data: [],
+                    backgroundColor: '#3b82f6',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        ticks: { color: '#94a3b8', font: {family: 'monospace'} },
+                        grid: { display: false }
+                    }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        function logCrypto(msg, type = 'neutral') {
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString().split(' ')[0];
+            let color = 'text-slate-300';
+            if (type === 'success') color = 'text-emerald-400';
+            if (type === 'warn') color = 'text-yellow-400';
+            if (type === 'danger') color = 'text-rose-400';
+            
+            div.innerHTML = `<span class="opacity-50">[${time}]</span> <span class="${color}">${msg}</span>`;
+            cryptoLog.appendChild(div);
+            cryptoLog.scrollTop = cryptoLog.scrollHeight;
+        }
+
+        sendBtn.addEventListener('click', () => {
+            if (!state.handshakeComplete) {
+                alert("Please complete the Handshake (Step 2) first!");
+                document.getElementById('handshake').scrollIntoView({behavior: 'smooth'});
+                return;
+            }
+
+            const text = chatInput.value.trim();
+            if(!text) return;
+
+            // 1. UI Message
+            const bubble = document.createElement('div');
+            bubble.className = "self-end bg-blue-600 text-white px-4 py-2 rounded-2xl rounded-tr-sm max-w-[80%] text-sm shadow-md ml-auto mb-2 ratchet-node";
+            bubble.innerText = text;
+            chatMsgs.appendChild(bubble);
+            chatMsgs.scrollTop = chatMsgs.scrollHeight;
+            chatInput.value = '';
+
+            // 2. Crypto Logic
+            state.messageIndex++;
+            const msgKey = `MK_${state.messageIndex.toString().padStart(3, '0')}`;
+            
+            logCrypto(`Ratchet Step ${state.messageIndex}: Derived ${msgKey}`, 'warn');
+            logCrypto(`Encrypting content...`, 'neutral');
+            
+            setTimeout(() => {
+                logCrypto(`Message Sent. Deleting ${msgKey} from memory.`, 'danger');
+                
+                // Update Chart
+                ratchetChart.data.labels.push(msgKey);
+                ratchetChart.data.datasets[0].data.push(state.messageIndex);
+                if(ratchetChart.data.labels.length > 4) {
+                    ratchetChart.data.labels.shift();
+                    ratchetChart.data.datasets[0].data.shift();
+                }
+                ratchetChart.update();
+                countBadge.innerText = state.messageIndex;
+            }, 800);
+        });
+
+        // --- 4. Verify Logic ---
+        function verifySafety(isNormal) {
+            const display = document.getElementById('safety-num-2');
+            const result = document.getElementById('verify-result');
+            
+            display.innerText = "Checking...";
+            result.innerText = "";
+            
+            setTimeout(() => {
+                if(isNormal) {
+                    display.innerText = "38491 02938";
+                    display.className = "font-mono text-2xl tracking-widest text-emerald-600 font-bold mb-2";
+                    result.innerText = "✅ Numbers Match. Connection Secure.";
+                    result.className = "mt-6 font-bold h-6 text-emerald-600";
+                } else {
+                    display.innerText = "99281 11029"; // Mismatch
+                    display.className = "font-mono text-2xl tracking-widest text-rose-600 font-bold mb-2";
+                    result.innerText = "❌ MISMATCH! Do not send sensitive data.";
+                    result.className = "mt-6 font-bold h-6 text-rose-600";
+                }
+            }, 600);
+        }
+
+    </script>
+</body>
+</html>
